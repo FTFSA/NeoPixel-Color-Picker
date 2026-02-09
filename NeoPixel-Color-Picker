@@ -1,0 +1,327 @@
+import React, { useState, useEffect } from 'react';
+import { Copy, Check } from 'lucide-react';
+
+export default function NeoPixelColorPicker() {
+  const [r, setR] = useState(255);
+  const [g, setG] = useState(165);
+  const [b, setB] = useState(0);
+  const [copiedHsv, setCopiedHsv] = useState(false);
+  const [copiedRgb, setCopiedRgb] = useState(false);
+  const [colorName, setColorName] = useState('orange');
+
+  // Convert RGB to HSV
+  const rgbToHsv = (r, g, b) => {
+    r /= 255;
+    g /= 255;
+    b /= 255;
+    
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const diff = max - min;
+    
+    let h = 0;
+    if (diff !== 0) {
+      if (max === r) {
+        h = 60 * (((g - b) / diff) % 6);
+      } else if (max === g) {
+        h = 60 * ((b - r) / diff + 2);
+      } else {
+        h = 60 * ((r - g) / diff + 4);
+      }
+    }
+    if (h < 0) h += 360;
+    
+    const s = max === 0 ? 0 : diff / max;
+    const v = max;
+    
+    return { h, s, v };
+  };
+
+  // Convert RGB to HSL
+  const rgbToHsl = (r, g, b) => {
+    r /= 255;
+    g /= 255;
+    b /= 255;
+    
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const diff = max - min;
+    
+    let h = 0;
+    if (diff !== 0) {
+      if (max === r) {
+        h = 60 * (((g - b) / diff) % 6);
+      } else if (max === g) {
+        h = 60 * ((b - r) / diff + 2);
+      } else {
+        h = 60 * ((r - g) / diff + 4);
+      }
+    }
+    if (h < 0) h += 360;
+    
+    const l = (max + min) / 2;
+    const s = diff === 0 ? 0 : diff / (1 - Math.abs(2 * l - 1));
+    
+    return { h, s, l };
+  };
+
+  const hsv = rgbToHsv(r, g, b);
+  const hsl = rgbToHsl(r, g, b);
+  
+  // Convert hue to 16-bit for NeoPixel (0-65535)
+  const hue16bit = Math.round((hsv.h / 360) * 65535);
+  const sat8bit = Math.round(hsv.s * 255);
+  const val8bit = Math.round(hsv.v * 255);
+  
+  const hex = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`.toUpperCase();
+  
+  // Sanitize color name for variable naming
+  const sanitizedName = colorName.replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase() || 'color';
+  
+  const code = `uint32_t ${sanitizedName} = strip.ColorHSV(${hue16bit}, ${sat8bit}, ${val8bit});
+${sanitizedName} = strip.gamma32(${sanitizedName});`;
+
+  const rgbCode = `uint32_t ${sanitizedName} = strip.Color(${r}, ${g}, ${b});`;
+
+  const handleCopy = async (text, setCopiedState) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedState(true);
+      setTimeout(() => setCopiedState(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+      // Fallback for older browsers
+      const textArea = document.createElement('textarea');
+      textArea.value = text;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      setCopiedState(true);
+      setTimeout(() => setCopiedState(false), 2000);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 p-8">
+      <div className="max-w-4xl mx-auto">
+        <h1 className="text-4xl font-bold text-white mb-2">NeoPixel Color Picker</h1>
+        <p className="text-gray-400 mb-8">Pick colors and generate code for Adafruit NeoPixel library</p>
+        
+        <div className="grid md:grid-cols-2 gap-8">
+          {/* Color Preview */}
+          <div>
+            <div className="flex gap-4 mb-6">
+              <div 
+                className="flex-1 h-64 rounded-lg shadow-2xl border-4 border-gray-700"
+                style={{ backgroundColor: `rgb(${r}, ${g}, ${b})` }}
+              />
+              <div className="relative w-12">
+                <input
+                  type="range"
+                  min="0"
+                  max="360"
+                  value={Math.round(hsv.h)}
+                  onChange={(e) => {
+                    const newHue = parseInt(e.target.value);
+                    // Convert HSV back to RGB
+                    const s = hsv.s;
+                    const v = hsv.v;
+                    const h = newHue / 60;
+                    const c = v * s;
+                    const x = c * (1 - Math.abs((h % 2) - 1));
+                    const m = v - c;
+                    
+                    let rPrime, gPrime, bPrime;
+                    if (h < 1) {
+                      [rPrime, gPrime, bPrime] = [c, x, 0];
+                    } else if (h < 2) {
+                      [rPrime, gPrime, bPrime] = [x, c, 0];
+                    } else if (h < 3) {
+                      [rPrime, gPrime, bPrime] = [0, c, x];
+                    } else if (h < 4) {
+                      [rPrime, gPrime, bPrime] = [0, x, c];
+                    } else if (h < 5) {
+                      [rPrime, gPrime, bPrime] = [x, 0, c];
+                    } else {
+                      [rPrime, gPrime, bPrime] = [c, 0, x];
+                    }
+                    
+                    setR(Math.round((rPrime + m) * 255));
+                    setG(Math.round((gPrime + m) * 255));
+                    setB(Math.round((bPrime + m) * 255));
+                  }}
+                  className="absolute top-0 left-0 w-64 h-12 -rotate-90 origin-top-left appearance-none cursor-pointer rounded-lg"
+                  style={{
+                    background: 'linear-gradient(to right, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)',
+                    transform: 'rotate(-90deg) translateX(-100%)',
+                    transformOrigin: 'top left'
+                  }}
+                />
+              </div>
+            </div>
+            
+            {/* RGB Sliders */}
+            <div className="space-y-4">
+              <div>
+                <label className="text-white font-semibold mb-2 block">Red: {r}</label>
+                <input
+                  type="range"
+                  min="0"
+                  max="255"
+                  value={r}
+                  onChange={(e) => setR(parseInt(e.target.value))}
+                  className="w-full h-3 rounded-lg appearance-none cursor-pointer"
+                  style={{
+                    background: `linear-gradient(to right, rgb(0,${g},${b}), rgb(255,${g},${b}))`
+                  }}
+                />
+              </div>
+              
+              <div>
+                <label className="text-white font-semibold mb-2 block">Green: {g}</label>
+                <input
+                  type="range"
+                  min="0"
+                  max="255"
+                  value={g}
+                  onChange={(e) => setG(parseInt(e.target.value))}
+                  className="w-full h-3 rounded-lg appearance-none cursor-pointer"
+                  style={{
+                    background: `linear-gradient(to right, rgb(${r},0,${b}), rgb(${r},255,${b}))`
+                  }}
+                />
+              </div>
+              
+              <div>
+                <label className="text-white font-semibold mb-2 block">Blue: {b}</label>
+                <input
+                  type="range"
+                  min="0"
+                  max="255"
+                  value={b}
+                  onChange={(e) => setB(parseInt(e.target.value))}
+                  className="w-full h-3 rounded-lg appearance-none cursor-pointer"
+                  style={{
+                    background: `linear-gradient(to right, rgb(${r},${g},0), rgb(${r},${g},255))`
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+          
+          {/* Values Display */}
+          <div className="space-y-6">
+            <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+              <h2 className="text-xl font-bold text-white mb-4">Color Name</h2>
+              <input
+                type="text"
+                value={colorName}
+                onChange={(e) => setColorName(e.target.value)}
+                placeholder="Enter color name (e.g., red, blue_sky)"
+                className="w-full bg-gray-900 text-white px-4 py-2 rounded border border-gray-700 focus:border-blue-500 focus:outline-none"
+              />
+              <p className="text-gray-400 text-xs mt-2">This will be used as the variable name in your code</p>
+            </div>
+            
+            <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+              <h2 className="text-xl font-bold text-white mb-4">Color Values</h2>
+              
+              <div className="space-y-3 text-sm">
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-400">Hex Code:</span>
+                  <span className="text-white font-mono font-bold">{hex}</span>
+                </div>
+                
+                <div className="border-t border-gray-700 pt-3">
+                  <div className="text-gray-300 font-semibold mb-2">RGB</div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Red:</span>
+                    <span className="text-white font-mono">{r}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Green:</span>
+                    <span className="text-white font-mono">{g}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Blue:</span>
+                    <span className="text-white font-mono">{b}</span>
+                  </div>
+                </div>
+                
+                <div className="border-t border-gray-700 pt-3">
+                  <div className="text-gray-300 font-semibold mb-2">HSV (NeoPixel Format)</div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Hue (16-bit):</span>
+                    <span className="text-white font-mono">{hue16bit}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Hue (degrees):</span>
+                    <span className="text-white font-mono">{Math.round(hsv.h)}°</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Saturation:</span>
+                    <span className="text-white font-mono">{sat8bit}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Value:</span>
+                    <span className="text-white font-mono">{val8bit}</span>
+                  </div>
+                </div>
+                
+                <div className="border-t border-gray-700 pt-3">
+                  <div className="text-gray-300 font-semibold mb-2">HSL</div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Hue:</span>
+                    <span className="text-white font-mono">{Math.round(hsl.h)}°</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Saturation:</span>
+                    <span className="text-white font-mono">{Math.round(hsl.s * 100)}%</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Lightness:</span>
+                    <span className="text-white font-mono">{Math.round(hsl.l * 100)}%</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            {/* Code Output */}
+            <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-bold text-white">Arduino Code (HSV)</h2>
+                <button
+                  onClick={() => handleCopy(code, setCopiedHsv)}
+                  className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm transition-colors"
+                >
+                  {copiedHsv ? <Check size={16} /> : <Copy size={16} />}
+                  {copiedHsv ? 'Copied!' : 'Copy'}
+                </button>
+              </div>
+              <pre className="bg-gray-900 p-4 rounded text-green-400 text-sm overflow-x-auto font-mono">
+                {code}
+              </pre>
+            </div>
+            
+            <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-bold text-white">Arduino Code (RGB)</h2>
+                <button
+                  onClick={() => handleCopy(rgbCode, setCopiedRgb)}
+                  className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm transition-colors"
+                >
+                  {copiedRgb ? <Check size={16} /> : <Copy size={16} />}
+                  {copiedRgb ? 'Copied!' : 'Copy'}
+                </button>
+              </div>
+              <pre className="bg-gray-900 p-4 rounded text-green-400 text-sm overflow-x-auto font-mono">
+                {rgbCode}
+              </pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
